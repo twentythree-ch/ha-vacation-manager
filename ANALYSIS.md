@@ -13,7 +13,10 @@ This document analyses how to build a **Vacation Manager** custom integration fo
 | 1 | Define multiple date ranges (start, end, title) where one is away |
 | 2 | Configure those ranges through a UI (calendar-like experience) |
 | 3 | Select which automations to turn off while away, using a tag/label |
-| 4 | Synchronise vacation periods to a Stiebel Eltron boiler (one-way, HA → boiler) |
+| 4 | Select which automations to turn on while away, using a second tag/label |
+| 5 | Turn on presence simulation while away and turn it off when back |
+| 6 | Synchronise vacation periods to a Stiebel Eltron boiler (one-way, HA → boiler) |
+| 7 | Apply heating presets: Eco during vacations, Comfort 24h before return, Comfort when back |
 
 ---
 
@@ -45,8 +48,8 @@ This document analyses how to build a **Vacation Manager** custom integration fo
 │          ▼                    ▼                              │
 │  ┌──────────────┐   ┌──────────────────────┐               │
 │  │  Automations │   │  Stiebel Eltron ISG  │               │
-│  │  (enable /   │   │  Integration         │               │
-│  │   disable)   │   │  (vacation entities) │               │
+│  │  / Presence  │   │  Integration         │               │
+│  │  Simulation  │   │  (vacation + presets)│               │
 │  └──────────────┘   └──────────────────────┘               │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -97,7 +100,12 @@ HA's built-in Calendar card can then render and edit the events without any extr
 
 ### 3.1 Tagging Automations
 
-Home Assistant has supported **labels** on automations since version 2023.9. The user assigns a label (e.g., `vacation_off`) to every automation that should be disabled during vacation. The label name is configurable inside the integration's config flow so it can be customised per installation.
+Home Assistant has supported **labels** on automations since version 2023.9. The user assigns:
+
+- a label such as `vacation_off` to automations that should be disabled during vacation
+- a label such as `vacation_on` to automations that should be enabled during vacation
+
+Both label names are configurable inside the integration's config flow so they can be customised per installation.
 
 Using labels is preferred over a custom registry because:
 - Labels are a first-class HA concept visible in the UI.
@@ -106,16 +114,32 @@ Using labels is preferred over a custom registry because:
 
 ### 3.2 Enable / Disable Logic
 
-A `VacationScheduler` component checks every minute (using `async_track_time_interval`) whether the current time falls inside any stored vacation period. If a transition occurs:
+A `VacationScheduler` component checks every minute (using `async_track_time_interval`) whether the current time falls inside any stored vacation period and whether the system is within the **24-hour pre-return window** before the end of the active vacation. If a transition occurs:
 
-1. **Vacation starts** → call `automation.turn_off` for every automation whose entity_id appears in the label registry under the configured label.
-2. **Vacation ends** → call `automation.turn_on` for the same set.
+1. **Vacation starts** → call `automation.turn_off` for every automation with the configured `vacation_off` label.
+2. **Vacation starts** → call `automation.turn_on` for every automation with the configured `vacation_on` label.
+3. **24h before return** → switch heating preset from Eco to Comfort so the house can warm up before arrival.
+4. **Vacation ends** → restore normal state: turn `vacation_off` automations back on, turn `vacation_on` automations back off, and ensure the heating preset is Comfort.
 
 To avoid flapping, state is cached in memory and only real transitions (off→on, on→off) trigger service calls.
 
 ### 3.3 Label Registration
 
-At config-entry setup, the integration reads `hass.data["entity_registry"]` to find automations labelled with the configured label name. This list is refreshed whenever the entity registry changes (via `async_track_state_change_event`).
+At config-entry setup, the integration reads `hass.data["entity_registry"]` to find automations labelled with the configured label names. These lists are refreshed whenever the entity registry changes.
+
+### 3.4 Presence Simulation
+
+The integration also manages the **Presence Simulation** integration as part of the vacation lifecycle. The preferred approach is to let the user select the relevant entity in the config flow:
+
+- a `switch` entity if Presence Simulation exposes a switch
+- otherwise a script or service target if that integration is controlled via service calls
+
+Lifecycle:
+
+1. **Vacation starts** → turn Presence Simulation on
+2. **Vacation ends** → turn Presence Simulation off
+
+This should be modeled as a dedicated adapter so the core scheduler only emits high-level state transitions (`away_started`, `pre_return`, `away_ended`).
 
 ---
 
@@ -128,6 +152,7 @@ The official **Stiebel Eltron ISG** integration (`stiebel_eltron`) exposes entit
 - `number.stiebel_eltron_vacation_start_date` (or similar)
 - `number.stiebel_eltron_vacation_end_date`
 - `switch.stiebel_eltron_vacation_mode`
+- climate / select / number entities related to heating presets or operation modes
 
 > **Note:** Entity names differ by firmware/ISG model. The integration must allow the user to **map** the correct entities from their Stiebel Eltron device during configuration (entity picker in the config flow).
 
@@ -139,7 +164,9 @@ When a vacation period is created or updated:
 
 1. Find the *next upcoming* vacation period (or the currently active one).
 2. Write start and end dates to the configured Stiebel Eltron entities using `hass.services.async_call("number", "set_value", ...)` and `hass.services.async_call("switch", "turn_on", ...)`.
-3. If no vacation period is active or upcoming, write a safe default (e.g. reset dates, turn off vacation switch).
+3. If the vacation is active, apply the configured **Eco** preset to the heating.
+4. If the current time is within 24 hours of the vacation end, apply the configured **Comfort** preset instead.
+5. If no vacation period is active or upcoming, write a safe default (e.g. reset dates, turn off vacation switch, apply Comfort).
 
 The sync is triggered by:
 - Any CRUD operation on vacation periods (create / update / delete).
@@ -149,6 +176,25 @@ The sync is triggered by:
 ### 4.3 Boiler Date Format
 
 Stiebel Eltron ISG typically expects dates as individual day/month/year number entities. The sync layer converts ISO date strings to the required format. Exact entity names and format are detected at runtime; if entities are not found, a warning is logged and sync is skipped gracefully.
+
+### 4.4 Heating Preset Handling
+
+Heating support should be configuration-driven because the exact Stiebel entities vary by model. The config flow should therefore allow the user to map either:
+
+- a climate entity that supports `climate.set_preset_mode`
+- a select entity for operating mode
+- or an alternative service/entity combination exposed by the Stiebel integration
+
+The integration stores two preset values:
+
+- **Away preset**: typically `Eco`
+- **Return preset**: typically `Comfort`
+
+The scheduler then applies:
+
+- `Eco` from vacation start until 24h before return
+- `Comfort` from 24h before return onward
+- `Comfort` after vacation end
 
 ---
 
@@ -209,8 +255,9 @@ ha-vacation-manager/
 ### Phase 3 — Config Flow & Options Flow
 
 - [ ] Implement `VacationManagerConfigFlow` in `config_flow.py`:
-  - Step 1: Integration name / label name for automations
-  - Step 2: Optional Stiebel Eltron entity mapping (entity picker)
+  - Step 1: Integration name / label names for `vacation_off` and `vacation_on`
+  - Step 2: Presence Simulation entity / service mapping
+  - Step 3: Optional Stiebel Eltron entity mapping and preset values (`Eco`, `Comfort`)
 - [ ] Implement `VacationManagerOptionsFlow` for changing settings post-setup
 - [ ] Add corresponding strings to `strings.json` / `translations/en.json`
 
@@ -227,7 +274,7 @@ ha-vacation-manager/
 - [ ] Implement `VacationScheduler` in `scheduler.py`:
   - Periodic check using `async_track_time_interval` (every 60 s)
   - `_get_labeled_automations()` using entity registry
-  - `_start_vacation()` / `_end_vacation()` service calls
+  - `_start_vacation()` / `_enter_pre_return_window()` / `_end_vacation()` transitions
 - [ ] Integrate scheduler lifecycle with config entry (start on load, stop on unload)
 - [ ] Write tests for scheduler logic
 
@@ -237,6 +284,10 @@ ha-vacation-manager/
   - `async_sync(hass, vacation_period)` — write to mapped entities
   - `async_clear(hass)` — reset boiler vacation
   - Date format conversion utilities
+- [ ] Implement heating preset handling inside boiler sync / climate adapter:
+  - apply away preset during vacation
+  - apply return preset 24h before vacation end
+  - apply return preset after vacation end
 - [ ] Call `BoilerSync.async_sync` after every store write
 - [ ] Expose `vacation_manager.sync_boiler` service
 - [ ] Write tests (with mocked `hass.services.async_call`)
@@ -250,22 +301,35 @@ ha-vacation-manager/
 - [ ] Implement service handlers in `__init__.py`
 - [ ] Register services in `async_setup_entry()`
 
-### Phase 8 — Optional Lovelace Panel
+### Phase 8 — Presence Simulation Adapter
+
+- [ ] Implement `presence.py` adapter:
+  - `async_turn_on()`
+  - `async_turn_off()`
+- [ ] Trigger it from scheduler transitions
+- [ ] Write tests for presence simulation activation/deactivation
+
+### Phase 9 — Optional Lovelace Panel
 
 - [ ] Create `www/vacation_manager_panel.js` (vanilla JS / Lit):
   - List upcoming vacation periods
   - Add / edit / delete periods via service calls
   - Display current vacation status
+  - Display whether pre-return heating mode is active
 - [ ] Register panel in `__init__.py` via `hass.components.frontend.async_register_built_in_panel` or `async_register_extra_html_url`
 
-### Phase 9 — Testing & CI
+### Phase 10 — Testing & CI
 
 - [ ] Configure `pytest` with `pytest-homeassistant-custom-component` fixture
 - [ ] Write integration tests for config flow
 - [ ] Write integration tests for calendar + store interaction
+- [ ] Write integration tests for:
+  - `vacation_off` and `vacation_on` labels
+  - Presence Simulation transitions
+  - heating preset transitions at vacation start / 24h before return / return home
 - [ ] Add GitHub Actions workflow for lint (`ruff`), type check (`mypy`), and test (`pytest`)
 
-### Phase 10 — Documentation & Release
+### Phase 11 — Documentation & Release
 
 - [ ] Update `README.md` with installation instructions, configuration guide, usage examples
 - [ ] Add `CHANGELOG.md`
@@ -279,10 +343,13 @@ ha-vacation-manager/
 |---|---|
 | Use HA `Store` (not SQLite) | Simple, no external dependencies, backed up with HA config |
 | Labels instead of custom tags | Native HA feature; visible in HA UI without extra code |
+| Separate `vacation_off` and `vacation_on` labels | Supports both suppression and activation use-cases without hard-coded entity lists |
 | Calendar entity (not custom panel) | Re-uses built-in HA Calendar card; less code, better UX |
 | Custom panel as fallback | Supports older HA versions and provides richer vacation-specific UX |
 | One-way boiler sync | Avoids conflict resolution complexity; boiler schedule is treated as a write-only sink |
 | Entity picker for boiler mapping | Boiler entity names differ by ISG firmware — hard-coding would break installations |
+| Presence Simulation as an adapter | Keeps scheduler generic and allows switch/service-based implementations |
+| 24h pre-return state | Matches heating lead time requirement without changing calendar data model |
 | `async_track_time_interval` (60 s) | Low overhead; acceptable latency for vacation start/end transitions |
 
 ---
