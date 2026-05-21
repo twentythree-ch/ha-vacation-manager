@@ -1,0 +1,34 @@
+add_period:
+  name: Add vacation period
+  description: Add a new vacation period to the schedule.
+  fields:
+    title:
+      required: true
+      example: Summer break
+      selector:
+        text:
+    start:
+      required: true
+      description: Start date (YYYY-MM-DD), away starts at 00:00 on this date.
+      example: "2026-07-12"
+      selector:
+        date:
+    end:
+      required: true
+      description: Return date (YYYY-MM-DD, exclusive), away ends at 00:00 on this date.
+      example: "2026-07-20"
+      selector:
+        date:
+
+remove_period:
+  name: Remove vacation period
+  description: Remove a vacation period by id.
+  fields:
+    period_id:
+      required: true
+      selector:
+        text:
+
+sync:
+  name: Re-evaluate vacation state
+  description: Recompute vacation transitions immediately.
