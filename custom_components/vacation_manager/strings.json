@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Vacation Manager",
+        "description": "Configure labels, presence simulation and heating presets.",
+        "data": {
+          "name": "Name",
+          "vacation_off_label": "Label for automations turned off while away",
+          "vacation_on_label": "Label for automations turned on while away",
+          "presence_entity_id": "Presence simulation entity (optional)",
+          "heating_entity_id": "Heating climate/select entity (optional)",
+          "eco_preset": "Away preset",
+          "comfort_preset": "Return preset"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Only one Vacation Manager instance is supported."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Vacation Manager options",
+        "data": {
+          "name": "Name",
+          "vacation_off_label": "Label for automations turned off while away",
+          "vacation_on_label": "Label for automations turned on while away",
+          "presence_entity_id": "Presence simulation entity (optional)",
+          "heating_entity_id": "Heating climate/select entity (optional)",
+          "eco_preset": "Away preset",
+          "comfort_preset": "Return preset"
+        }
+      }
+    }
+  }
+}

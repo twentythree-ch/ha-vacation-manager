@@ -18,8 +18,17 @@ Its goal is to centralize vacation scheduling so Home Assistant can react automa
 
 ## Current repository status
 
-This repository currently contains the project analysis and implementation plan.
+This repository now includes an initial implementation under `custom_components/vacation_manager`.
 
-- See `ANALYSIS.md` for the detailed design, architecture decisions, and implementation phases.
+Implemented in this first version:
 
-Actual Home Assistant integration code has not been added yet.
+- Config flow and options flow
+- Vacation period storage and services (`add_period`, `remove_period`, `sync`)
+- Scheduler-based transitions for:
+  - automations with `vacation_off`
+  - automations with `vacation_on`
+  - presence simulation on/off
+  - heating presets (`Eco` during away, `Comfort` 24h before return and when back)
+- Calendar entity exposing stored vacation periods
+
+For the broader design and roadmap, see `ANALYSIS.md`.
