@@ -32,6 +32,8 @@ class HeatingController:
         if not self._entity_id:
             return
 
+        if "." not in self._entity_id:
+            return
         domain = self._entity_id.split(".", 1)[0]
         state = self._hass.states.get(self._entity_id)
         if state is None:

@@ -38,7 +38,9 @@ class VacationStore:
         start_date = _parse_date(start)
         end_date = _parse_date(end)
         if end_date <= start_date:
-            raise ValueError("end date must be after start date")
+            raise ValueError(
+                "End date must be after start date. End is the return date (exclusive)."
+            )
 
         period = {
             ATTR_PERIOD_ID: str(uuid4()),

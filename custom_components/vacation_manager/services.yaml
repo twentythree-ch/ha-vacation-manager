@@ -15,7 +15,7 @@ add_period:
         date:
     end:
       required: true
-      description: Return date (YYYY-MM-DD), away ends at 00:00 on this date.
+      description: Return date (YYYY-MM-DD, exclusive), away ends at 00:00 on this date.
       example: "2026-07-20"
       selector:
         date:

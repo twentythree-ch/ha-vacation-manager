@@ -24,6 +24,8 @@ class PresenceController:
         if not self._entity_id:
             return
 
+        if "." not in self._entity_id:
+            return
         domain = self._entity_id.split(".", 1)[0]
         service = "turn_on" if on else "turn_off"
         await self._hass.services.async_call(

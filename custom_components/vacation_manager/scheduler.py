@@ -43,6 +43,7 @@ class VacationScheduler:
         self._heating = heating
         self._phase = PHASE_HOME
         self._cancel: CALLBACK_TYPE | None = None
+        self._label_cache: dict[str, str] = {}
 
     async def async_start(self) -> None:
         """Start periodic checks."""
@@ -132,8 +133,13 @@ class VacationScheduler:
             )
 
     def _label_id_from_name(self, label_name: str) -> str | None:
+        cached = self._label_cache.get(label_name)
+        if cached is not None:
+            return cached
+
         label_registry = lr.async_get(self._hass)
         for label_id, item in label_registry.labels.items():
             if item.name == label_name:
+                self._label_cache[label_name] = label_id
                 return label_id
         return None

@@ -11,6 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import async_get_runtime_data
 from .const import ATTR_END, ATTR_START, ATTR_TITLE
+from .store import VacationStore
 
 
 async def async_setup_entry(
@@ -27,7 +28,7 @@ class VacationCalendar(CalendarEntity):
     _attr_has_entity_name = True
     _attr_name = "Vacations"
 
-    def __init__(self, entry_id: str, store) -> None:
+    def __init__(self, entry_id: str, store: VacationStore) -> None:
         self._entry_id = entry_id
         self._store = store
         self._event: CalendarEvent | None = None

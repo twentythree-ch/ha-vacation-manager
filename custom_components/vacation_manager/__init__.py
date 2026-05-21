@@ -21,6 +21,8 @@ from .const import (
     CONF_ECO_PRESET,
     CONF_HEATING_ENTITY_ID,
     CONF_PRESENCE_ENTITY_ID,
+    DEFAULT_COMFORT_PRESET,
+    DEFAULT_ECO_PRESET,
     DOMAIN,
     PLATFORMS,
     SERVICE_ADD_PERIOD,
@@ -51,17 +53,18 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Vacation Manager from a config entry."""
+    config = {**entry.data, **entry.options}
     store = VacationStore(hass, entry.entry_id)
     await store.async_load()
 
-    presence = PresenceController(hass, entry.data.get(CONF_PRESENCE_ENTITY_ID))
+    presence = PresenceController(hass, config.get(CONF_PRESENCE_ENTITY_ID))
     heating = HeatingController(
         hass,
-        entry.data.get(CONF_HEATING_ENTITY_ID),
-        entry.data.get(CONF_ECO_PRESET, "Eco"),
-        entry.data.get(CONF_COMFORT_PRESET, "Comfort"),
+        config.get(CONF_HEATING_ENTITY_ID),
+        config.get(CONF_ECO_PRESET, DEFAULT_ECO_PRESET),
+        config.get(CONF_COMFORT_PRESET, DEFAULT_COMFORT_PRESET),
     )
-    scheduler = VacationScheduler(hass, store, entry.data, presence, heating)
+    scheduler = VacationScheduler(hass, store, config, presence, heating)
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = VacationRuntimeData(store=store, scheduler=scheduler)
